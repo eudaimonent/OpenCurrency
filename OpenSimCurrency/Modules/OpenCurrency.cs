@@ -9,7 +9,7 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the OpenSim Project nor the
+ *     * Neither the name of the OpenSimulator Project nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
@@ -72,6 +72,7 @@ namespace OpenCurrency.Modules.OpenCurrency
         private bool gridmode = false;
         // private ObjectPaid handerOnObjectPaid;
         private bool m_enabled = true;
+        private bool m_sellEnabled = false;
 
         private IConfigSource m_gConfig;
 
@@ -94,7 +95,6 @@ namespace OpenCurrency.Modules.OpenCurrency
 
         private int m_stipend = 1000;
 
-        private int ObjectCapacity = 45000;
         private int ObjectCount = 0;
         private int PriceEnergyUnit = 0;
         private int PriceGroupCreate = 0;
@@ -143,31 +143,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             ReadConfigAndPopulate(startupConfig, "Startup");
             ReadConfigAndPopulate(economyConfig, "Economy");
 
-            if (m_enabled)
-            {
-                // XMLRPCHandler = scene;
-
-                // To use the following you need to add:
-                // -helperuri <ADDRESS TO HERE OR grid MONEY SERVER>
-                // to the command line parameters you use to start up your client
-                // This commonly looks like -helperuri http://127.0.0.1:9000/
-
-                IHttpServer httpServer = MainServer.Instance;
-
-                if (m_MoneyAddress.Length > 0)
-                {
-                    httpServer.AddXmlRPCHandler("balanceUpdateRequest", GridMoneyUpdate);
-                    httpServer.AddXmlRPCHandler("userAlert", UserAlert);
-                }
-                else
-                {
-                    // Local Server..  enables functionality only.
-                    httpServer.AddXmlRPCHandler("getCurrencyQuote", quote_func);
-                    httpServer.AddXmlRPCHandler("buyCurrency", buy_func);
-                    httpServer.AddXmlRPCHandler("preflightBuyLandPrep", preflightBuyLandPrep_func);
-                    httpServer.AddXmlRPCHandler("buyLandPrep", landBuy_func);
-                }
-            }
+            
         }
 
         public void AddRegion(Scene scene)
@@ -175,8 +151,33 @@ namespace OpenCurrency.Modules.OpenCurrency
             if (m_enabled)
             {
                 scene.RegisterModuleInterface<IMoneyModule>(this);
+
+                    // XMLRPCHandler = scene;
+
+                    // To use the following you need to add:
+                    // -helperuri <ADDRESS TO HERE OR grid MONEY SERVER>
+                    // to the command line parameters you use to start up your client
+                    // This commonly looks like -helperuri http://127.0.0.1:9000/
+
+                    IHttpServer httpServer = MainServer.Instance;
+
                 lock (m_scenel)
                 {
+
+                    if (m_MoneyAddress.Length > 0)
+                    {
+                        httpServer.AddXmlRPCHandler("balanceUpdateRequest", GridMoneyUpdate);
+                        httpServer.AddXmlRPCHandler("userAlert", UserAlert);
+                    }
+                    else
+                    {
+                        // Local Server..  enables functionality only.
+                        httpServer.AddXmlRPCHandler("getCurrencyQuote", quote_func);
+                        httpServer.AddXmlRPCHandler("buyCurrency", buy_func);
+                        httpServer.AddXmlRPCHandler("preflightBuyLandPrep", preflightBuyLandPrep_func);
+                        httpServer.AddXmlRPCHandler("buyLandPrep", landBuy_func);
+                    }
+
                     if (m_scenel.ContainsKey(scene.RegionInfo.RegionHandle))
                     {
                         m_scenel[scene.RegionInfo.RegionHandle] = scene;
@@ -227,7 +228,7 @@ namespace OpenCurrency.Modules.OpenCurrency
         public void ApplyUploadCharge(UUID agentID, int price, string description)
         {
             m_log.Debug("[OPENCURRENCY]: Base account: " + EconomyBaseAccount + " Agent ID: " + agentID + " " + description);
-            bool give_result = DoMoneyTransfer(agentID, EconomyBaseAccount, price, 2, description);
+            bool give_result = doMoneyTransfer(agentID, EconomyBaseAccount, price, 2, description);
 
             if (m_MoneyAddress.Length == 0)
             {
@@ -239,7 +240,7 @@ namespace OpenCurrency.Modules.OpenCurrency
         {
             string description = "Group create fee";
             m_log.Debug("[OPENCURRENCY]: Base account: " + EconomyBaseAccount + " Agent ID: " + agentID + " " + description);
-            bool give_result = DoMoneyTransfer(agentID, EconomyBaseAccount, PriceGroupCreate, 2, description);
+            bool give_result = doMoneyTransfer(agentID, EconomyBaseAccount, PriceGroupCreate, 2, description);
 
             if (m_MoneyAddress.Length == 0)
             {
@@ -252,11 +253,11 @@ namespace OpenCurrency.Modules.OpenCurrency
             ApplyCharge(agentID, amount, type, String.Empty);
         }
 
-        public void ApplyCharge(UUID agentID, int amount, MoneyTransactionType type, string text)
+        public void ApplyCharge(UUID agentID, int amount, MoneyTransactionType type, string extraData)
         {
-            string description = String.Format("Apply Charge {0} {1}", amount, text);
+            string description = String.Format("Apply Charge {0} {1}", amount, extraData);
             m_log.Debug("[OPENCURRENCY]: base account: " + EconomyBaseAccount + " Agent ID: " + agentID + " " + description);
-            bool give_result = DoMoneyTransfer(agentID, EconomyBaseAccount, amount, 2, description);
+            bool give_result = doMoneyTransfer(agentID, EconomyBaseAccount, amount, 2, description);
 
             if (m_MoneyAddress.Length == 0)
             {
@@ -267,8 +268,8 @@ namespace OpenCurrency.Modules.OpenCurrency
         public bool ObjectGiveMoney(UUID objectID, UUID fromID, UUID toID, int amount)
         {
             bool isGroup;
-            string description = String.Format("Object {0} pays {1}", resolveObjectName(objectID), ResolveAgentName(toID, out isGroup));
-            bool give_result = DoMoneyTransfer(fromID, toID, amount, 2, description);
+            string description = String.Format("Object {0} pays {1}", resolveObjectName(objectID), resolveAgentName(toID, out isGroup));
+            bool give_result = doMoneyTransfer(fromID, toID, amount, 2, description);
 
             if (m_MoneyAddress.Length == 0)
                 BalanceUpdate(fromID, toID, give_result, description);
@@ -291,7 +292,7 @@ namespace OpenCurrency.Modules.OpenCurrency
 
         public Type ReplaceableInterface
         {
-            get { return null; }
+            get { return typeof(IMoneyModule); }
         }
 
         #endregion
@@ -312,7 +313,6 @@ namespace OpenCurrency.Modules.OpenCurrency
 
             if (config == "Economy" && startupConfig != null)
             {
-                ObjectCapacity = startupConfig.GetInt("ObjectCapacity", 45000);
                 PriceEnergyUnit = startupConfig.GetInt("PriceEnergyUnit", 100);
                 PriceObjectClaim = startupConfig.GetInt("PriceObjectClaim", 10);
                 PricePublicObjectDecay = startupConfig.GetInt("PricePublicObjectDecay", 4);
@@ -328,6 +328,7 @@ namespace OpenCurrency.Modules.OpenCurrency
                 PriceObjectScaleFactor = startupConfig.GetFloat("PriceObjectScaleFactor", 10);
                 PriceParcelRent = startupConfig.GetInt("PriceParcelRent", 1);
                 PriceGroupCreate = startupConfig.GetInt("PriceGroupCreate", -1);
+                m_sellEnabled = startupConfig.GetBoolean("SellEnabled", false);
                 string EconomyBaseAccount = startupConfig.GetString("EconomyBaseAccount", UUID.Zero.ToString());
 
                 // UserLevelPaysFees = startupConfig.GetInt("UserLevelPaysFees", -1);
@@ -355,7 +356,7 @@ namespace OpenCurrency.Modules.OpenCurrency
                     bool childYN = true;
                     ScenePresence agent = null;
                     //client.SecureSessionId;
-                    Scene s = GetClientScene(client.AgentId);
+                    Scene s = LocateSceneClientIn(client.AgentId);
                     if (s != null)
                     {
                         agent = s.GetScenePresence(client.AgentId);
@@ -436,7 +437,7 @@ namespace OpenCurrency.Modules.OpenCurrency
         /// <param name="Receiver"></param>
         /// <param name="amount"></param>
         /// <returns></returns>
-        private bool DoMoneyTransfer(UUID Sender, UUID Receiver, int amount, int transactiontype, string description)
+        private bool doMoneyTransfer(UUID Sender, UUID Receiver, int amount, int transactiontype, string description)
         {
             bool result = false;
             if (amount >= 0)
@@ -668,12 +669,12 @@ namespace OpenCurrency.Modules.OpenCurrency
         //
         // Get the name of an agent
         //
-        private string ResolveAgentName(UUID agentID, out bool isGroup)
+        private string resolveAgentName(UUID agentID, out bool isGroup)
         {
             isGroup = false;
 
             // Fast way first
-            Scene scene=GetClientScene(agentID);
+            Scene scene=LocateSceneClientIn(agentID);
             if(scene != null)
             {
                 ScenePresence presence=scene.GetScenePresence(agentID);
@@ -685,7 +686,10 @@ namespace OpenCurrency.Modules.OpenCurrency
             scene = GetRandomScene();
             UserAccount account = scene.UserAccountService.GetUserAccount(scene.RegionInfo.ScopeID, agentID);
             if (account != null)
-                return account.FirstName + " " + account.LastName;
+            {
+                string avatarname = account.FirstName + " " + account.LastName;
+                return avatarname;
+            }
 
             // Maybe it's not an agent
             IGroupsModule groups = scene.RequestModuleInterface<IGroupsModule>();
@@ -811,7 +815,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             IClientAPI aClient = LocateClientObject(agentId);
             if (aClient != null)
             {
-                Scene s = GetClientScene(agentId);
+                Scene s = LocateSceneClientIn(agentId);
                 if (s != null)
                 {
                     if (m_MoneyAddress.Length > 0)
@@ -898,7 +902,7 @@ namespace OpenCurrency.Modules.OpenCurrency
         /// <summary>
         /// XMLRPC handler to send alert message and sound to client
         /// </summary>
-        public XmlRpcResponse UserAlert(XmlRpcRequest request, IPEndPoint ep)
+        public XmlRpcResponse UserAlert(XmlRpcRequest request, IPEndPoint remoteClient)
         {
             XmlRpcResponse ret = new XmlRpcResponse();
             Hashtable retparam = new Hashtable();
@@ -948,7 +952,7 @@ namespace OpenCurrency.Modules.OpenCurrency
 
         # region Standalone box enablers only
 
-        public XmlRpcResponse quote_func(XmlRpcRequest request, IPEndPoint ep)
+        public XmlRpcResponse quote_func(XmlRpcRequest request, IPEndPoint remoteClient)
         {
             Hashtable requestData = (Hashtable)request.Params[0];
             UUID agentId = UUID.Zero;
@@ -986,7 +990,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             return returnval;
         }
 
-        public XmlRpcResponse buy_func(XmlRpcRequest request, IPEndPoint ep)
+        public XmlRpcResponse buy_func(XmlRpcRequest request, IPEndPoint remoteClient)
         {
             Hashtable requestData = (Hashtable)request.Params[0];
             UUID agentId = UUID.Zero;
@@ -1028,7 +1032,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             return returnval;
         }
 
-        public XmlRpcResponse preflightBuyLandPrep_func(XmlRpcRequest request, IPEndPoint ep)
+        public XmlRpcResponse preflightBuyLandPrep_func(XmlRpcRequest request, IPEndPoint remoteClient)
         {
             XmlRpcResponse ret = new XmlRpcResponse();
             Hashtable retparam = new Hashtable();
@@ -1062,7 +1066,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             return ret;
         }
 
-        public XmlRpcResponse landBuy_func(XmlRpcRequest request, IPEndPoint ep)
+        public XmlRpcResponse landBuy_func(XmlRpcRequest request, IPEndPoint remoteClient)
         {
             XmlRpcResponse ret = new XmlRpcResponse();
             Hashtable retparam = new Hashtable();
@@ -1204,7 +1208,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             return null;
         }
 
-        private Scene GetClientScene(UUID AgentId)
+        private Scene LocateSceneClientIn(UUID AgentId)
         {
             lock (m_scenel)
             {
@@ -1263,7 +1267,7 @@ namespace OpenCurrency.Modules.OpenCurrency
 
         public void requestPayPrice(IClientAPI client, UUID objectID)
         {
-            Scene scene = GetClientScene(client.AgentId);
+            Scene scene = LocateSceneClientIn(client.AgentId);
             if (scene == null)
                 return;
 
@@ -1277,9 +1281,12 @@ namespace OpenCurrency.Modules.OpenCurrency
         }
 
         /// <summary>
-        /// When the client closes the connection we remove their accounting info from memory to free up resources.
+        /// When the client closes the connection we remove their accounting
+        /// info from memory to free up resources.
         /// </summary>
-        /// <param name="AgentID"></param>
+        /// <param name="AgentID">UUID of agent</param>
+        /// <param name="scene">Scene the agent was connected to.</param>
+        /// <see cref="OpenSim.Region.Framework.Scenes.EventManager.ClientClosed"/>
         public void ClientClosed(UUID AgentID, Scene scene)
         {
             lock (m_KnownClientFunds)
@@ -1300,7 +1307,9 @@ namespace OpenCurrency.Modules.OpenCurrency
         /// <param name="agentId"></param>
         public void EconomyDataRequestHandler(IClientAPI user)
         {
-            user.SendEconomyData(EnergyEfficiency, ObjectCapacity, ObjectCount, PriceEnergyUnit, PriceGroupCreate,
+            Scene s = (Scene)user.Scene;
+
+            user.SendEconomyData(EnergyEfficiency, s.RegionInfo.ObjectCapacity, ObjectCount, PriceEnergyUnit, PriceGroupCreate,
                                  PriceObjectClaim, PriceObjectRent, PriceObjectScaleFactor, PriceParcelClaim, PriceParcelClaimFactor,
                                  PriceParcelRent, PricePublicObjectDecay, PricePublicObjectDelete, PriceRentLight, PriceUpload,
                                  TeleportMinPrice, TeleportPriceExponent);
@@ -1345,7 +1354,7 @@ namespace OpenCurrency.Modules.OpenCurrency
                 {
                     e.transactionID = Util.UnixTimeSinceEpoch();
 
-                    if (DoMoneyTransfer(e.agentId, e.parcelOwnerID, e.parcelPrice, 0, "Land purchase"))
+                    if (doMoneyTransfer(e.agentId, e.parcelOwnerID, e.parcelPrice, 0, "Land purchase"))
                     {
                         lock (e)
                         {
@@ -1379,14 +1388,14 @@ namespace OpenCurrency.Modules.OpenCurrency
                         return;
 
                     bool isGroup;
-                    string name = ResolveAgentName(part.OwnerID, out isGroup);
+                    string name = resolveAgentName(part.OwnerID, out isGroup);
                     if (name == String.Empty)
                         name = "Unknown";
 
                     receiver = LocateClientObject(part.OwnerID);
 
                     string description = String.Format("Paid {0} via object {1}", name, e.description);
-                    bool transactionresult = DoMoneyTransfer(e.sender, part.OwnerID, e.amount, e.transactiontype, description);
+                    bool transactionresult = doMoneyTransfer(e.sender, part.OwnerID, e.amount, e.transactiontype, description);
 
                     if (transactionresult)
                     {
@@ -1414,7 +1423,7 @@ namespace OpenCurrency.Modules.OpenCurrency
             {
                 receiver = LocateClientObject(e.receiver);
 
-                bool transactionresult = DoMoneyTransfer(e.sender, e.receiver, e.amount, e.transactiontype, e.description);
+                bool transactionresult = doMoneyTransfer(e.sender, e.receiver, e.amount, e.transactiontype, e.description);
 
                 if (e.sender != e.receiver)
                 {
@@ -1591,14 +1600,14 @@ namespace OpenCurrency.Modules.OpenCurrency
         // Please do not refactor these to be just one method
         // Existing implementations need the distinction
         //
-        public bool UploadCovered(UUID agentID, int price)
+        public bool UploadCovered(UUID agentID, int amount)
         {
-            return AmountCovered(agentID, price);
+            return AmountCovered(agentID, amount);
         }
 
-        public bool GroupCreationCovered(UUID agentID, int price)
+        public bool GroupCreationCovered(UUID agentID, int amount)
         {
-            return AmountCovered(agentID, price);
+            return AmountCovered(agentID, amount);
         }
 
         public bool AmountCovered(UUID agentID, int amount)
@@ -1631,7 +1640,7 @@ namespace OpenCurrency.Modules.OpenCurrency
                 return;
             }
 
-            Scene s = GetClientScene(remoteClient.AgentId);
+            Scene s = LocateSceneClientIn(remoteClient.AgentId);
 
             SceneObjectPart part = s.GetSceneObjectPart(localID);
             if (part == null)
@@ -1654,7 +1663,7 @@ namespace OpenCurrency.Modules.OpenCurrency
 
                 if (module.BuyObject(remoteClient, categoryID, localID, saleType, salePrice))
                 {
-                    bool transactionresult = DoMoneyTransfer(remoteClient.AgentId, sellerID, salePrice, 5000, part.Name);
+                    bool transactionresult = doMoneyTransfer(remoteClient.AgentId, sellerID, salePrice, 5000, part.Name);
                     if (!transactionresult)
                     {
                         remoteClient.SendAgentAlertMessage("Stale money transfer", false);
