@@ -50,7 +50,33 @@ function process_transaction($avatarId, $amount, $ipAddress)
 
 function convert_to_real($currency)
 {
-	return 0;
+	if($currency == 0)
+		return 0;
+
+	$db=new DB;
+
+	# Get the currency conversion ratio in USD Cents per Money Unit
+	# Actually, it's whatever currency your credit card processor uses
+
+	$db->query("select CentsPerMoneyUnit from ".C_CURRENCY_TBL." limit 1");
+	
+	list($CentsPerMoneyUnit) = $db->next_record();
+
+	if (!$CentsPerMoneyUnit)
+	{
+		$CentsPerMoneyUnit = 0;
+	}	
+		
+	# Multiply the cents per unit times the requested amount
+
+	$real = $CentsPerMoneyUnit * $currency;
+	
+	// Dealing in cents here. The XML requires an integer
+	// so we have to ceil out any decimal places and cast as an integer
+
+	$real = (integer)ceil($real);		
+
+	return $real;
 }
 
 function update_simulator_balance($agentId)
@@ -120,6 +146,46 @@ function move_money($sourceId, $destId, $amount, $aggregatePermInventory,
     {
         $currentRegion = $results["currentRegion"];
 	 }
+
+	# Add Cash to one account
+
+	$sql = "insert into ".C_TRANSACTION_TBL." (sourceId,destId,amount,flags,".
+			"aggregatePermInventory,aggregatePermNextOwner,transactionType,".
+			"description,timeOccurred,RegionGenerated,ipGenerated) ".
+			"values ('".
+			$db->escape($sourceId)."','".
+			$db->escape($destId)."',".
+			$db->escape($amount).",".
+			$db->escape($aggregatePermInventory).",".
+			$db->escape($aggregatePermNextOwner).",".
+			$db->escape($flags).",".
+			$db->escape($transactionType).",'".
+			$db->escape($description)."',".
+			time().",'".
+			$db->escape($currentRegion)."','".
+			$db->escape($ipGenerated)."')";
+	
+	$db->query($sql);
+
+	# Remove Cash from the other account
+	
+	$sql = "insert into ".C_TRANSACTION_TBL." (sourceId,destId,amount,flags,".
+			"aggregatePermInventory,aggregatePermNextOwner,transactionType,".
+			"description,timeOccurred,RegionGenerated,ipGenerated) ".
+			"values ('".
+			$db->escape($destId)."','".
+			$db->escape($sourceId)."',".
+			$db->escape(-$amount).",".
+			$db->escape($aggregatePermInventory).",".
+			$db->escape($aggregatePermNextOwner).",".
+			$db->escape($flags).",".
+			$db->escape($transactionType).",'".
+			$db->escape($description)."',".
+			time().",'".
+			$db->escape($currentRegion)."','".
+			$db->escape($ipGenerated)."')";
+
+	$db->query($sql);
 }
 
 function get_balance($avatarId)
@@ -127,6 +193,13 @@ function get_balance($avatarId)
     $db=new DB;
 
     $cash = 0;
+    
+	$sql="SELECT SUM(amount) FROM ".C_TRANSACTION_TBL." ".
+            "WHERE destId='".$db->escape($avatarId)."'";      
+	
+	$db->query($sql);
+
+    list($cash) = $db->next_record();
 
     return (integer)$cash;
 }
@@ -161,9 +234,33 @@ function agent_name($agentId)
 
 	$record=$db->next_record();
 	if(!$record)
-		return "";
+	{
+		group_name($agentId);
+	}
+	else
+	{
+		$name=implode(" ", array($record[0], $record[1]));
 
-	$name=implode(" ", array($record[0], $record[1]));
+		return $name;
+	}
+}
+
+function group_name($groupId)
+{
+	$db=new DB;
+
+	$sql="select Name from osgroups.osgroup where GroupID='".$groupId."'";
+	
+	$db->query($sql);
+
+	$record=$db->next_record();
+	
+	if(!$record)
+	{
+		return "";
+	}
+
+	$name= $record[0];
 
 	return $name;
 }
