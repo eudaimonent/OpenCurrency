@@ -249,7 +249,7 @@ function group_name($groupId)
 {
 	$db=new DB;
 
-	$sql="select Name from osgroups.osgroup where GroupID='".$groupId."'";
+	$sql="select Name from os_groups_groups where GroupID='".$groupId."'";
 	
 	$db->query($sql);
 
